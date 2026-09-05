@@ -66,6 +66,16 @@ def web_loader(url):
     
     return splitted_chunks
 
+select_document = input("Select Your Document Type (url or pdf) : ")
+
+if select_document.strip().lower() == "pdf":
+    path = input("Enter the path of pdf : ")
+    chunks = pdf_loader(path)
+elif select_document.strip().lower() == "url":
+    url = input("Paste your url : ")
+    chunks - web_loader(url)
+else:
+    print("File type not valid")
 
 
 
