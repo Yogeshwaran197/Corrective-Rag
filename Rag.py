@@ -22,6 +22,50 @@ from psycopg.rows import dict_row
 load_dotenv()
 
 
+def pdf_loader(pdf_path):
+
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError("File Not Found")
+
+    loader =  PyPDFLoader(pdf_path)
+    
+    try:
+        doc_list =  loader.load()
+        print(f"Length of the document : {len{doc_list}}")
+
+        spliter = RecursiveCharacterTextSplitter(
+            chunk_size = 1000,
+            chunk_overlap = 100
+        )
+        splitted_chunks = spliter.split_documents()
+        print(f"Length of chunks : {len(splitted_chunks)}")
+    except Exception as e:
+        raise ValueError(f"Error while splitting documents")
+    
+    return splitted_chunks
+
+def web_loader(url):
+
+    urls = [url]
+    all_pages = []
+
+    loader = WebBaseLoader()
+
+    try:
+        for url in urls:
+            doc_list = loader.load(url)
+            print(f"Length of the Document")
+            spilter = RecursiveCharacterTextSplitter(
+                chunk_size = 1000,
+                chunk_overlap = 100
+            )
+            splitted_chunks = spilter.split_documents(doc_list)
+            print(f"Length of Chunks : {len(splitted_chunks)}")
+    except Exception as e:
+        raise ValueError("Error while loading url {e}")
+    
+    return splitted_chunks
+
 
 
 
