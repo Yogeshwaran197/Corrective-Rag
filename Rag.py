@@ -235,6 +235,30 @@ def generator_node(state : AgentState) -> AgentState:
 
     return {"generation" : response }
 
+graph = StateGraph(AgentState)
+
+graph.add_node("retriever", retriever_node)
+graph.add_node("grader", grader_node)
+graph.add_node("generator", generator_node)
+graph.add_node("transform_query", transfrom_query_node)
+graph.add_node("websearch", websearch_node)
+
+graph.add_edge(START, "retriever")
+graph.add_edge("retriever", "grader")
+graph.add_conditional_edges(
+    "grader",
+    should_continue,
+    {
+        "Transfrom_query_node": "transform_query",
+        "generator_node" : "generator"
+    } 
+)
+graph.add_edge("transform_query", "websearch")
+graph.add_edge("websearch", "generator")
+graph.add_edge("generator", END)
+
+Crag =  graph.compile()
+
 
 
 
