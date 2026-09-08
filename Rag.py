@@ -1,9 +1,12 @@
+from urllib3 import response
 import os
 import requests
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.tools import tool
+from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_tavily import TavilySearch
 from langchain_community.vectorstores import Chroma
@@ -76,6 +79,175 @@ elif select_document.strip().lower() == "url":
     chunks - web_loader(url)
 else:
     print("File type not valid")
+
+
+llm = ChatGroq(
+    model = "openai/gpt-oss-120b"
+)
+embeddings =  HuggingFaceEmbeddings(
+    model_name="BAAI/bge-m3"
+)
+
+persist_memory = r"C:\Users\JANARTHAN\Downloads\CorrectiveRag\Corrective-Rag"
+collection_name = "SelfDB"
+
+try:
+    vectorstore = Chroma.from_documents(
+        documents=chunks,
+        persist_directory= persist_memory,
+        collection_name= collection_name,
+        embedding=embeddings
+    )
+
+except Exception as e:
+    raise ValueError("Error while creating vectorstore")
+
+retriever =  vectorstore.as_retriever(
+    search_type = "mmr",
+    search_kwargs = {
+        "k" : 5,
+        "fetch_k" : 10,
+        "lambda_mult" : 0.5
+    }
+)
+
+class AgentState(TypedDict):
+    question : str
+    document : list[str]
+    generation : str
+    web_search : bool
+
+def retriever_node(state : AgentState) -> AgentState:
+
+   question =  state['question']
+   response = retriever.invoke(question)
+
+   return {"document" : [response]}
+
+
+class llm_schema(BaseModel):
+
+    binary_score : str =  Field(..., description="yes or no, wheather document relevant to question or not")
+
+llm_with_schema = llm.with_structured_output(llm_schema)
+
+def grader_node(state : AgentState) -> AgentState:
+
+    question = state['question']
+    document = state['document']
+    
+    prompt = ChatPromptTemplate.from_messages([
+           (
+            "system",
+            "You grade whether a retrieved document is relevant to a user question. "
+            "Give 'yes' if it contains keywords or semantic meaning related to the "
+            "question. This is a lenient filter to catch clearly irrelevant docs, "
+            "not a strict correctness check.",
+        ),
+        ("human", "Retrieved document:\n\n{document}\n\nUser question: {question}"),
+    ])
+
+    chain = prompt | llm_with_schema
+
+    web_search = False
+
+    filtered_docs = []
+
+    for doc in document:
+        result = chain.invoke({
+                            "document" : doc.page_content ,
+                            "question" : question
+                        })
+
+        if result.binary_score.lower() == "yes":
+            filtered_docs.append(doc)
+        else: 
+            web_search = True
+    
+    return {"document" : filtered_docs, "web_search" : web_search}
+
+
+def should_continue(state : AgentState) -> str:
+
+    web_search = state['web_search']
+
+    if web_search:
+        return "Transfrom_query_node"
+    else:
+        return "generator_node"
+
+
+def transfrom_query_node(state : AgentState) -> AgentState:
+
+    question = state['question']
+
+    tranfrom_query_prompt = ChatPromptTemplate.from_messages([
+        ("system",
+            "You rewrite questions to be better optimized for web search. "
+            "Look at the input and reason about the underlying semantic intent.",
+        ),
+        ("human", "Initial question:\n\n{question}\n\nFormulate an improved question."),
+    ])
+
+    chain = tranfrom_query_prompt | llm | StrOutputParser()
+
+    result = chain.invoke({
+        "question": question
+    })
+
+    return { "question" : result}
+
+def websearch_node(state : AgentState) -> AgentState:
+
+    question =  state['question']
+    search = TavilySearch(k=5)
+    doc = search.invoke(question) 
+
+    for d in doc:
+        context =  Document(page_content=d.page_content)
+    
+    return {"document" : context}
+
+
+
+def generator_node(state : AgentState) -> AgentState:
+
+    question = state['question']
+    document = state['document']
+
+    for doc in document:
+        context = "\n\n".join(doc.page_content)
+
+    generate_prompt = ChatPromptTemplate.from_messages([
+        (
+            "system",
+            "Answer the question using only the provided context. "
+            "If the context doesn't contain the answer, say so plainly.",
+        ),
+        ("human", "Context:\n{context}\n\nQuestion: {question}"),
+    ])
+
+    chain = generate_prompt | llm | StrOutputParser()
+
+    response =  chain.invoke({
+        "question": question, "context": context
+    })
+
+    return {"generation" : response }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
