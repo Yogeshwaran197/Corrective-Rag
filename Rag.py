@@ -34,13 +34,13 @@ def pdf_loader(pdf_path):
     
     try:
         doc_list =  loader.load()
-        print(f"Length of the document : {len{doc_list}}")
+        print(f"Length of the document : {len(doc_list)}")
 
         spliter = RecursiveCharacterTextSplitter(
             chunk_size = 1000,
             chunk_overlap = 100
         )
-        splitted_chunks = spliter.split_documents()
+        splitted_chunks = spliter.split_documents(doc_list)
         print(f"Length of chunks : {len(splitted_chunks)}")
     except Exception as e:
         raise ValueError(f"Error while splitting documents")
@@ -52,11 +52,10 @@ def web_loader(url):
     urls = [url]
     all_pages = []
 
-    loader = WebBaseLoader()
-
     try:
         for url in urls:
-            doc_list = loader.load(url)
+            loader = WebBaseLoader(url)
+            doc_list = loader.load()
             print(f"Length of the Document")
             spilter = RecursiveCharacterTextSplitter(
                 chunk_size = 1000,
@@ -76,7 +75,7 @@ if select_document.strip().lower() == "pdf":
     chunks = pdf_loader(path)
 elif select_document.strip().lower() == "url":
     url = input("Paste your url : ")
-    chunks - web_loader(url)
+    chunks = web_loader(url)
 else:
     print("File type not valid")
 
@@ -122,7 +121,7 @@ def retriever_node(state : AgentState) -> AgentState:
    question =  state['question']
    response = retriever.invoke(question)
 
-   return {"document" : [response]}
+   return {"document" : response}
 
 
 class llm_schema(BaseModel):
@@ -169,9 +168,9 @@ def grader_node(state : AgentState) -> AgentState:
 
 def should_continue(state : AgentState) -> str:
 
-    web_search = state['web_search']
+    document = state['document']
 
-    if web_search:
+    if len(document) == 0:
         return "Transfrom_query_node"
     else:
         return "generator_node"
@@ -200,13 +199,13 @@ def transfrom_query_node(state : AgentState) -> AgentState:
 def websearch_node(state : AgentState) -> AgentState:
 
     question =  state['question']
+    document = state['document']
     search = TavilySearch(k=5)
     doc = search.invoke(question) 
 
-    for d in doc:
-        context =  Document(page_content=d.page_content)
+    context = [Document(page_content=d["content"]) for d in doc["results"]]
     
-    return {"document" : context}
+    return {"document" : document + context}
 
 
 
@@ -215,8 +214,7 @@ def generator_node(state : AgentState) -> AgentState:
     question = state['question']
     document = state['document']
 
-    for doc in document:
-        context = "\n\n".join(doc.page_content)
+    context = "\n\n".join(doc.page_content for doc in document)
 
     generate_prompt = ChatPromptTemplate.from_messages([
         (
@@ -234,6 +232,9 @@ def generator_node(state : AgentState) -> AgentState:
     })
 
     return {"generation" : response }
+
+
+
 
 graph = StateGraph(AgentState)
 
@@ -258,6 +259,22 @@ graph.add_edge("websearch", "generator")
 graph.add_edge("generator", END)
 
 Crag =  graph.compile()
+
+print("=" * 60)
+print("Corrective RAG Agent")
+print("=" * 60)
+
+while True:
+    user_input =  input("Ask : ")
+
+    if user_input == "exit":
+        break
+
+    result = Crag.invoke({
+        "question" : user_input,
+    })
+
+    print(result['generation'])
 
 
 
