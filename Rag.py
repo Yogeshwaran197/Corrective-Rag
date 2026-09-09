@@ -24,6 +24,7 @@ from psycopg.rows import dict_row
 
 load_dotenv()
 
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 def pdf_loader(pdf_path):
 
@@ -235,7 +236,6 @@ def generator_node(state : AgentState) -> AgentState:
 
 
 
-
 graph = StateGraph(AgentState)
 
 graph.add_node("retriever", retriever_node)
@@ -258,11 +258,27 @@ graph.add_edge("transform_query", "websearch")
 graph.add_edge("websearch", "generator")
 graph.add_edge("generator", END)
 
-Crag =  graph.compile()
+serde = EncryptedSerializer.from_pycryptodome_aes()
+
+conn = Connection.connect(
+    DATABASE_URL,
+    autocommit=True
+)
+
+checkpointer = PostgresSaver(
+    conn,
+    serde=serde
+)
+
+checkpointer.setup()
+
+Crag = graph.compile(checkpointer=checkpointer)
 
 print("=" * 60)
 print("Corrective RAG Agent")
 print("=" * 60)
+
+config = {"configurable": {"thread_id": "1"}}
 
 while True:
     user_input =  input("Ask : ")
@@ -272,7 +288,7 @@ while True:
 
     result = Crag.invoke({
         "question" : user_input,
-    })
+    }, config=config)
 
     print(result['generation'])
 
